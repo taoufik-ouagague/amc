@@ -7,7 +7,7 @@ import {
   ArrowDownIcon,
   CreditCardIcon,
   AdjustmentsHorizontalIcon,
-  RefreshIcon
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
 interface TokenTransactionHistoryProps {
@@ -49,7 +49,7 @@ const TokenTransactionHistory: React.FC<TokenTransactionHistoryProps> = ({
       case 'consumed':
         return <ArrowDownIcon className="h-5 w-5 text-red-600" />;
       case 'refunded':
-        return <RefreshIcon className="h-5 w-5 text-blue-600" />;
+        return <ArrowPathIcon className="h-5 w-5 text-blue-600" />;
       case 'adjusted':
         return <AdjustmentsHorizontalIcon className="h-5 w-5 text-purple-600" />;
       default:
