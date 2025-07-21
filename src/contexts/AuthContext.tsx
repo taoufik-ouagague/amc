@@ -292,15 +292,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
         
         if (error) throw error;
+        
+        // Force refresh users list to ensure sync across devices
+        await loadUsers();
+        
+        // If this is the current user, they'll need to re-login with new password
+        if (user && user.email === email) {
+          // Optional: Show a message that they need to re-login
+          console.log('Password updated for current user - re-login may be required');
+        }
       }
     } catch (error) {
       console.error('Error setting password:', error);
-      
-      // Fallback to localStorage
-      const storedPasswords = localStorage.getItem('amc_booking_system_v1.0_userPasswords');
-      const passwords = storedPasswords ? JSON.parse(storedPasswords) : {};
-      passwords[email] = password;
-      localStorage.setItem('amc_booking_system_v1.0_userPasswords', JSON.stringify(passwords));
+      throw error; // Re-throw to let the UI handle the error
     }
   };
 
