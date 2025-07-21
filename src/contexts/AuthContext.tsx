@@ -38,8 +38,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .from('profiles')
         .select('*');
       
-      if (error) throw error;
-      setUsers(data || []);
+      if (error) {
+        // If profiles table doesn't exist, fall back to localStorage
+        if (error.code === '42P01' || error.message.includes('does not exist')) {
+          console.warn('Profiles table does not exist, using localStorage fallback');
+          const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+          if (storedUsers) {
+            setUsers(JSON.parse(storedUsers));
+          }
+          return;
+        }
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        setUsers(data);
+      } else {
+        // If no users in Supabase, check localStorage
+        const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+        if (storedUsers) {
+          setUsers(JSON.parse(storedUsers));
+        }
+      }
     } catch (error) {
       console.error('Error loading users:', error);
       // Fallback to localStorage if Supabase fails
@@ -64,9 +84,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             .eq('id', session.user.id)
             .single();
           
-          if (error) throw error;
+          if (error) {
+            // If profiles table doesn't exist, fall back to localStorage
+            if (error.code === '42P01' || error.message.includes('does not exist')) {
+              console.warn('Profiles table does not exist, checking localStorage');
+              const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
+              if (storedUser) {
+                setUser(JSON.parse(storedUser));
+              }
+              return;
+            }
+            throw error;
+          }
+          
           if (profile) {
             setUser(profile);
+          } else {
+            // Profile not found in Supabase, check localStorage
+            const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
+            if (storedUser) {
+              setUser(JSON.parse(storedUser));
+            }
           }
         }
       } catch (error) {
