@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
+import TokenAllocationModal from '../tokens/TokenAllocationModal';
+import TokenTransactionHistory from '../tokens/TokenTransactionHistory';
 import { 
   UsersIcon, 
   PlusIcon, 
   PencilIcon, 
   TrashIcon,
-  CreditCardIcon 
+  CreditCardIcon,
+  BanknotesIcon,
+  ClockIcon as HistoryIcon
 } from '@heroicons/react/24/outline';
 
 const UserManagement: React.FC = () => {
@@ -14,6 +18,9 @@ const UserManagement: React.FC = () => {
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [showEditUserForm, setShowEditUserForm] = useState(false);
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [showTokenHistory, setShowTokenHistory] = useState(false);
+  const [selectedUserForTokens, setSelectedUserForTokens] = useState<any>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
@@ -267,6 +274,26 @@ const UserManagement: React.FC = () => {
                         🔑
                       </button>
                       <button 
+                        onClick={() => {
+                          setSelectedUserForTokens(userData);
+                          setShowTokenModal(true);
+                        }}
+                        className="text-blue-600 hover:text-blue-900 transition-colors p-1"
+                        title="Manage Tokens"
+                      >
+                        <BanknotesIcon className="h-4 w-4" />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setSelectedUserForTokens(userData);
+                          setShowTokenHistory(true);
+                        }}
+                        className="text-purple-600 hover:text-purple-900 transition-colors p-1"
+                        title="Token History"
+                      >
+                        <HistoryIcon className="h-4 w-4" />
+                      </button>
+                      <button 
                         onClick={() => handleDeleteUser(userData.id)}
                         className="text-red-600 hover:text-red-900 transition-colors p-1"
                       >
@@ -470,6 +497,33 @@ const UserManagement: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Token Allocation Modal */}
+      {showTokenModal && selectedUserForTokens && (
+        <TokenAllocationModal
+          user={selectedUserForTokens}
+          onClose={() => {
+            setShowTokenModal(false);
+            setSelectedUserForTokens(null);
+          }}
+          onSuccess={() => {
+            // Refresh user data or show success message
+            window.location.reload(); // Simple refresh for now
+          }}
+        />
+      )}
+
+      {/* Token Transaction History Modal */}
+      {showTokenHistory && selectedUserForTokens && (
+        <TokenTransactionHistory
+          userId={selectedUserForTokens.id}
+          userName={selectedUserForTokens.name}
+          onClose={() => {
+            setShowTokenHistory(false);
+            setSelectedUserForTokens(null);
+          }}
+        />
       )}
     </>
   );

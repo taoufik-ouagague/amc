@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { BookingProvider } from './contexts/BookingContext';
 import { MachineProvider } from './contexts/MachineContext';
+import { TokenProvider } from './contexts/TokenContext';
 import LoginForm from './components/auth/LoginForm';
 import Dashboard from './components/Dashboard';
 import LoadingSpinner from './components/common/LoadingSpinner';
@@ -34,11 +35,13 @@ const AppContent: React.FC = () => {
 function App() {
   return (
     <AuthProvider>
-      <MachineProvider>
-        <BookingProvider>
-          <AppContent />
-        </BookingProvider>
-      </MachineProvider>
+      <TokenProvider>
+        <MachineProvider>
+          <BookingProvider>
+            <AppContent />
+          </BookingProvider>
+        </MachineProvider>
+      </TokenProvider>
     </AuthProvider>
   );
 }
