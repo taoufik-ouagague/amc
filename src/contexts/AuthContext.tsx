@@ -34,16 +34,36 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Load users from Supabase
   const loadUsers = async () => {
     try {
+      // Check if profiles table exists by making a minimal query
       const { data, error } = await supabase
         .from('profiles')
-        .select('*');
+        .select('id')
+        .limit(1);
+      
+      if (error && error.code === '42P01') {
+        // Table doesn't exist, use localStorage
+        const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+        if (storedUsers) {
+          setUsers(JSON.parse(storedUsers));
+        }
+        return;
+      }
       
       if (error) {
         throw error;
       }
       
-      if (data && data.length > 0) {
-        setUsers(data);
+      // Table exists, get all users
+      const { data: allUsers, error: allUsersError } = await supabase
+        .from('profiles')
+        .select('*');
+        
+      if (allUsersError) {
+        throw allUsersError;
+      }
+      
+      if (allUsers && allUsers.length > 0) {
+        setUsers(allUsers);
       } else {
         // If no users in Supabase, check localStorage
         const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
@@ -52,8 +72,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
     } catch (error) {
-      // If profiles table doesn't exist or any Supabase error, fall back to localStorage
-      console.warn('Supabase profiles table not available, using localStorage fallback');
+      // Silently fall back to localStorage for any Supabase errors
       const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
       if (storedUsers) {
         setUsers(JSON.parse(storedUsers));
@@ -68,29 +87,40 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user) {
-          // Get user profile from database
-          const { data: profile, error } = await supabase
+          // Check if profiles table exists first
+          const { data: testData, error: testError } = await supabase
+            .from('profiles')
+            .select('id')
+            .limit(1);
+          
+          if (testError && testError.code === '42P01') {
+            // Table doesn't exist, use localStorage
+            const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
+            if (storedUser) {
+              setUser(JSON.parse(storedUser));
+            }
+            return;
+          }
+          
+          // Table exists, get user profile
+          const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
           
-          if (error) {
-            throw error;
-          }
-          
-          if (profile) {
-            setUser(profile);
-          } else {
-            // Profile not found in Supabase, check localStorage
+          if (profileError || !profile) {
+            // Profile not found, check localStorage
             const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
             if (storedUser) {
               setUser(JSON.parse(storedUser));
             }
+          } else {
+            setUser(profile);
           }
         }
       } catch (error) {
-        console.warn('Supabase session check failed, using localStorage fallback');
+        // Silently fall back to localStorage
         const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
         if (storedUser) {
           setUser(JSON.parse(storedUser));
@@ -106,14 +136,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (profile) {
-          setUser(profile);
+        try {
+          const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (!error && profile) {
+            setUser(profile);
+          }
+        } catch (error) {
+          // Silently ignore profile fetch errors during auth state changes
         }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
