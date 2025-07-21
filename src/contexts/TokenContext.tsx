@@ -99,7 +99,7 @@ export const TokenProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         .from('token_transactions')
         .select(`
           *,
-          profiles!token_transactions_created_by_fkey(name)
+          created_by:profiles(name)
         `)
         .order('created_at', { ascending: false });
 
@@ -107,7 +107,7 @@ export const TokenProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       const formattedTransactions = data?.map(transaction => ({
         ...transaction,
-        created_by_name: transaction.profiles?.name || 'System'
+        created_by_name: transaction.created_by?.name || 'System'
       })) || [];
 
       setTransactions(formattedTransactions);
