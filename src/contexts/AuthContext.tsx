@@ -31,14 +31,76 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
 
+  // Initialize with default admin accounts
+  const initializeDefaultUsers = () => {
+    const defaultUsers: User[] = [
+      {
+        id: 'amc_admin_001',
+        name: 'AMC Administrator',
+        email: 'admin@amc.com',
+        role: 'amc_admin',
+        tokens_given: 0,
+        tokens_consumed: 0,
+        tokens_remaining: 0,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'ima_admin_001',
+        name: 'IMA Administrator', 
+        email: 'admin@ima.com',
+        role: 'ima_admin',
+        tokens_given: 0,
+        tokens_consumed: 0,
+        tokens_remaining: 0,
+        created_at: new Date().toISOString()
+      }
+    ];
+
+    const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+    const storedPasswords = localStorage.getItem('amc_booking_system_v1.0_userPasswords') || '{}';
+    const passwords = JSON.parse(storedPasswords);
+    
+    if (!storedUsers) {
+      // First time setup - create default users and passwords
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(defaultUsers));
+      passwords['admin@amc.com'] = 'admin123';
+      passwords['admin@ima.com'] = 'admin123';
+      localStorage.setItem('amc_booking_system_v1.0_userPasswords', JSON.stringify(passwords));
+      setUsers(defaultUsers);
+    } else {
+      const existingUsers = JSON.parse(storedUsers);
+      let needsUpdate = false;
+      
+      // Check if AMC admin exists
+      const amcAdminExists = existingUsers.some((u: User) => u.role === 'amc_admin');
+      if (!amcAdminExists) {
+        existingUsers.push(defaultUsers[0]);
+        passwords['admin@amc.com'] = 'admin123';
+        needsUpdate = true;
+      }
+      
+      // Check if IMA admin exists
+      const imaAdminExists = existingUsers.some((u: User) => u.role === 'ima_admin');
+      if (!imaAdminExists) {
+        existingUsers.push(defaultUsers[1]);
+        passwords['admin@ima.com'] = 'admin123';
+        needsUpdate = true;
+      }
+      
+      if (needsUpdate) {
+        localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(existingUsers));
+        localStorage.setItem('amc_booking_system_v1.0_userPasswords', JSON.stringify(passwords));
+      }
+      
+      setUsers(existingUsers);
+    }
+  };
+
   // Load users from Supabase
   const loadUsers = async () => {
     // Skip Supabase if not properly configured
     if (!isSupabaseConfigured()) {
-      const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
-      if (storedUsers) {
-        setUsers(JSON.parse(storedUsers));
-      }
+      initializeDefaultUsers();
       return;
     }
 
@@ -63,18 +125,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (allUsers && allUsers.length > 0) {
         setUsers(allUsers);
       } else {
-        // If no users in Supabase, check localStorage
-        const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
-        if (storedUsers) {
-          setUsers(JSON.parse(storedUsers));
-        }
+        // If no users in Supabase, initialize with defaults
+        initializeDefaultUsers();
       }
     } catch (error) {
-      // Silently fall back to localStorage for any Supabase errors
-      const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
-      if (storedUsers) {
-        setUsers(JSON.parse(storedUsers));
-      }
+      // Silently fall back to localStorage with defaults for any Supabase errors
+      initializeDefaultUsers();
     }
   };
 
