@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from './AuthContext';
 
 export interface TokenTransaction {
   id: string;
@@ -37,6 +38,7 @@ export const useToken = () => {
 export const TokenProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [transactions, setTransactions] = useState<TokenTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const { getUserById } = useAuth();
 
   const allocateTokens = async (userId: string, amount: number, description: string) => {
     setIsLoading(true);
@@ -97,17 +99,14 @@ export const TokenProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     try {
       const { data, error } = await supabase
         .from('token_transactions')
-        .select(`
-          *,
-          created_by:profiles(name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       const formattedTransactions = data?.map(transaction => ({
         ...transaction,
-        created_by_name: transaction.created_by?.name || 'System'
+        created_by_name: getUserById(transaction.created_by)?.name || 'System'
       })) || [];
 
       setTransactions(formattedTransactions);
