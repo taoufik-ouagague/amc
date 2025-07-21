@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -33,14 +33,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Load users from Supabase
   const loadUsers = async () => {
+    // Skip Supabase if not properly configured
+    if (!isSupabaseConfigured()) {
+      const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+      if (storedUsers) {
+        setUsers(JSON.parse(storedUsers));
+      }
+      return;
+    }
+
     try {
-      // Check if profiles table exists by making a minimal query
-      const { data, error } = await supabase
+      const { data: allUsers, error: allUsersError } = await supabase
         .from('profiles')
-        .select('id')
-        .limit(1);
-      
-      if (error && error.code === '42P01') {
+        .select('*');
+        
+      if (allUsersError && allUsersError.code === '42P01') {
         // Table doesn't exist, use localStorage
         const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
         if (storedUsers) {
@@ -49,15 +56,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
       
-      if (error) {
-        throw error;
-      }
-      
-      // Table exists, get all users
-      const { data: allUsers, error: allUsersError } = await supabase
-        .from('profiles')
-        .select('*');
-        
       if (allUsersError) {
         throw allUsersError;
       }
@@ -83,33 +81,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Check for existing session on mount
   useEffect(() => {
     const checkSession = async () => {
+      // Skip Supabase if not properly configured
+      if (!isSupabaseConfigured()) {
+        const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        }
+        setIsLoading(false);
+        return;
+      }
+
       try {
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user) {
-          // Check if profiles table exists first
-          const { data: testData, error: testError } = await supabase
-            .from('profiles')
-            .select('id')
-            .limit(1);
-          
-          if (testError && testError.code === '42P01') {
-            // Table doesn't exist, use localStorage
-            const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
-            if (storedUser) {
-              setUser(JSON.parse(storedUser));
-            }
-            return;
-          }
-          
-          // Table exists, get user profile
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
           
-          if (profileError || !profile) {
+          if (profileError && profileError.code === '42P01') {
+            // Table doesn't exist, use localStorage
+            const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
+            if (storedUser) {
+              setUser(JSON.parse(storedUser));
+            }
+          } else if (profileError || !profile) {
             // Profile not found, check localStorage
             const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
             if (storedUser) {
@@ -158,6 +156,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
+    // Skip Supabase if not properly configured
+    if (!isSupabaseConfigured()) {
+      // Use localStorage authentication
+      const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+      const storedPasswords = localStorage.getItem('amc_booking_system_v1.0_userPasswords');
+      
+      if (storedUsers && storedPasswords) {
+        const users = JSON.parse(storedUsers);
+        const passwords = JSON.parse(storedPasswords);
+        
+        const foundUser = users.find((u: User) => u.email === email);
+        if (foundUser && passwords[email] === password) {
+          setUser(foundUser);
+          localStorage.setItem('amc_booking_system_v1.0_currentUser', JSON.stringify(foundUser));
+          return true;
+        }
+      }
+      return false;
+    }
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -207,10 +225,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.error('Logout error:', error);
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        // Ignore logout errors
+      }
     }
     
     setUser(null);
@@ -218,6 +238,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addUser = async (userData: Omit<User, 'id' | 'created_at'>): Promise<User> => {
+    // Skip Supabase if not properly configured
+    if (!isSupabaseConfigured()) {
+      const newUser: User = {
+        ...userData,
+        id: Date.now().toString(),
+        created_at: new Date().toISOString()
+      };
+      
+      const updatedUsers = [...users, newUser];
+      setUsers(updatedUsers);
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(updatedUsers));
+      
+      return newUser;
+    }
+
     try {
       // Create auth user first
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -269,6 +304,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateUser = async (id: string, updates: Partial<User>) => {
+    // Skip Supabase if not properly configured
+    if (!isSupabaseConfigured()) {
+      const updatedUsers = users.map(u => u.id === id ? { ...u, ...updates } : u);
+      setUsers(updatedUsers);
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(updatedUsers));
+      
+      if (user && user.id === id) {
+        const updatedUser = { ...user, ...updates };
+        setUser(updatedUser);
+        localStorage.setItem('amc_booking_system_v1.0_currentUser', JSON.stringify(updatedUser));
+      }
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('profiles')
@@ -301,6 +350,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const deleteUser = async (id: string) => {
+    // Skip Supabase if not properly configured
+    if (!isSupabaseConfigured()) {
+      const updatedUsers = users.filter(u => u.id !== id);
+      setUsers(updatedUsers);
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(updatedUsers));
+      
+      if (user && user.id === id) {
+        logout();
+      }
+      return;
+    }
+
     try {
       // Delete from profiles table
       const { error: profileError } = await supabase
@@ -337,6 +398,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const getAllUsers = () => users;
 
   const setUserPassword = async (email: string, password: string) => {
+    // Skip Supabase if not properly configured
+    if (!isSupabaseConfigured()) {
+      // For localStorage mode, just store the password
+      const storedPasswords = localStorage.getItem('amc_booking_system_v1.0_userPasswords') || '{}';
+      const passwords = JSON.parse(storedPasswords);
+      passwords[email] = password;
+      localStorage.setItem('amc_booking_system_v1.0_userPasswords', JSON.stringify(passwords));
+      return;
+    }
+
     try {
       const targetUser = users.find(u => u.email === email);
       if (targetUser) {
