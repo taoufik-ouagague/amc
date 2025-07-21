@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../lib/supabase';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -6,7 +7,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
-  addUser: (userData: Omit<User, 'id' | 'created_at'>) => User;
+  addUser: (userData: Omit<User, 'id' | 'created_at'>) => Promise<User>;
   updateUser: (id: string, updates: Partial<User>) => void;
   deleteUser: (id: string) => void;
   getAllUsers: () => User[];
@@ -25,183 +26,255 @@ export const useAuth = () => {
   return context;
 };
 
-// Mock users for demonstration
-const mockUsers: User[] = [
-  {
-    id: '1',
-    name: 'Hamani AMC Admin',
-    email: 'admin@hamani.amc',
-    role: 'amc_admin',
-    tokens_given: 0,
-    tokens_consumed: 0,
-    tokens_remaining: 0,
-    created_at: '2024-01-01T00:00:00Z'
-  },
-  {
-    id: '2',
-    name: 'Ramzi IMA Admin',
-    email: 'admin@ramzi.ima',
-    role: 'ima_admin',
-    tokens_given: 0,
-    tokens_consumed: 0,
-    tokens_remaining: 0,
-    created_at: '2024-01-01T00:00:00Z'
-  }
-];
-
-// Central data management with versioning
-const STORAGE_VERSION = '1.0';
-const STORAGE_KEY_PREFIX = 'amc_booking_system_v' + STORAGE_VERSION + '_';
-
-const getStoredData = (key: string, defaultValue: any) => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_PREFIX + key);
-    return stored ? JSON.parse(stored) : defaultValue;
-  } catch (error) {
-    console.error('Error loading stored data:', error);
-    return defaultValue;
-  }
-};
-
-const saveStoredData = (key: string, data: any) => {
-  try {
-    localStorage.setItem(STORAGE_KEY_PREFIX + key, JSON.stringify(data));
-    // Also save to a backup key with timestamp
-    localStorage.setItem(STORAGE_KEY_PREFIX + key + '_backup', JSON.stringify({
-      data,
-      timestamp: new Date().toISOString()
-    }));
-  } catch (error) {
-    console.error('Error saving data:', error);
-  }
-};
-
-const getStoredPasswords = () => {
-  return getStoredData('userPasswords', {
-    'admin@hamani.amc': 'AMC13719',
-    'admin@ramzi.ima': 'IMA12345'
-  });
-};
-
-const savePasswords = (passwords: { [email: string]: string }) => {
-  saveStoredData('userPasswords', passwords);
-};
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [users, setUsers] = useState<User[]>(() => getStoredData('users', mockUsers));
-  const [userPasswords, setUserPasswords] = useState<{ [email: string]: string }>(() => getStoredPasswords());
+  const [users, setUsers] = useState<User[]>([]);
 
-  // Save users whenever they change
-  useEffect(() => {
-    saveStoredData('users', users);
-  }, [users]);
-
-  // Save passwords whenever they change
-  useEffect(() => {
-    savePasswords(userPasswords);
-  }, [userPasswords]);
-
-  // Sync data across tabs/devices
-  const syncData = () => {
-    const latestUsers = getStoredData('users', mockUsers);
-    const latestPasswords = getStoredPasswords();
-    setUsers(latestUsers);
-    setUserPasswords(latestPasswords);
+  // Load users from Supabase
+  const loadUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*');
+      
+      if (error) throw error;
+      setUsers(data || []);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      // Fallback to localStorage if Supabase fails
+      const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+      if (storedUsers) {
+        setUsers(JSON.parse(storedUsers));
+      }
+    }
   };
 
-  // Listen for storage changes from other tabs
+  // Check for existing session on mount
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key?.startsWith(STORAGE_KEY_PREFIX)) {
-        syncData();
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          // Get user profile from database
+          const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (error) throw error;
+          if (profile) {
+            setUser(profile);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking session:', error);
+        // Fallback to localStorage
+        const storedUser = localStorage.getItem('amc_booking_system_v1.0_currentUser');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        }
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    checkSession();
+    loadUsers();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        
+        if (profile) {
+          setUser(profile);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    // Check for stored user session
-    const storedUser = getStoredData('currentUser', null);
-    if (storedUser) {
-      // Verify user still exists in current user list
-      const userExists = users.find(u => u.id === storedUser.id);
-      if (userExists) {
-        setUser(userExists);
-      } else {
-        // User was deleted, clear session
-        localStorage.removeItem(STORAGE_KEY_PREFIX + 'currentUser');
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // Get user profile
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+        
+        if (profile) {
+          setUser(profile);
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      
+      // Fallback to localStorage authentication
+      const storedUsers = localStorage.getItem('amc_booking_system_v1.0_users');
+      const storedPasswords = localStorage.getItem('amc_booking_system_v1.0_userPasswords');
+      
+      if (storedUsers && storedPasswords) {
+        const users = JSON.parse(storedUsers);
+        const passwords = JSON.parse(storedPasswords);
+        
+        const foundUser = users.find((u: User) => u.email === email);
+        if (foundUser && passwords[email] === password) {
+          setUser(foundUser);
+          localStorage.setItem('amc_booking_system_v1.0_currentUser', JSON.stringify(foundUser));
+          return true;
+        }
+      }
+      
+      return false;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    
+    setUser(null);
+    localStorage.removeItem('amc_booking_system_v1.0_currentUser');
+  };
+
+  const addUser = async (userData: Omit<User, 'id' | 'created_at'>): Promise<User> => {
+    try {
+      // Create auth user first
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: userData.email,
+        password: 'temp123456', // Temporary password
+        email_confirm: true
+      });
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        // Create profile
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: authData.user.id,
+            name: userData.name,
+            role: userData.role,
+            tokens_given: userData.tokens_given,
+            tokens_consumed: userData.tokens_consumed,
+            tokens_remaining: userData.tokens_remaining
+          })
+          .select()
+          .single();
+
+        if (profileError) throw profileError;
+        
+        await loadUsers(); // Refresh users list
+        return profile;
+      }
+      
+      throw new Error('Failed to create user');
+    } catch (error) {
+      console.error('Error adding user:', error);
+      
+      // Fallback to localStorage
+      const newUser: User = {
+        ...userData,
+        id: Date.now().toString(),
+        created_at: new Date().toISOString()
+      };
+      
+      const updatedUsers = [...users, newUser];
+      setUsers(updatedUsers);
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(updatedUsers));
+      
+      return newUser;
+    }
+  };
+
+  const updateUser = async (id: string, updates: Partial<User>) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      await loadUsers(); // Refresh users list
+      
+      // Update current user if it's the same user
+      if (user && user.id === id) {
+        const updatedUser = { ...user, ...updates };
+        setUser(updatedUser);
+      }
+    } catch (error) {
+      console.error('Error updating user:', error);
+      
+      // Fallback to localStorage
+      const updatedUsers = users.map(u => u.id === id ? { ...u, ...updates } : u);
+      setUsers(updatedUsers);
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(updatedUsers));
+      
+      if (user && user.id === id) {
+        const updatedUser = { ...user, ...updates };
+        setUser(updatedUser);
+        localStorage.setItem('amc_booking_system_v1.0_currentUser', JSON.stringify(updatedUser));
       }
     }
-    setIsLoading(false);
-  }, [users]);
+  };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    // Sync latest data before login attempt
-    syncData();
-    const latestUsers = getStoredData('users', mockUsers);
-    const latestPasswords = getStoredPasswords();
-    
-    // Mock authentication
-    const foundUser = latestUsers.find(u => u.email === email);
-    if (foundUser && latestPasswords[email] === password) {
-      // Update last login
-      const updatedUser = { ...foundUser, last_login: new Date().toISOString() };
-      const updatedUsers = latestUsers.map(u => u.id === foundUser.id ? updatedUser : u);
-      setUsers(updatedUsers);
-      saveStoredData('users', updatedUsers);
+  const deleteUser = async (id: string) => {
+    try {
+      // Delete from profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', id);
+
+      if (profileError) throw profileError;
+
+      // Delete auth user
+      const { error: authError } = await supabase.auth.admin.deleteUser(id);
+      if (authError) console.error('Error deleting auth user:', authError);
       
-      setUser(updatedUser);
-      saveStoredData('currentUser', updatedUser);
-      return true;
-    }
-    return false;
-  };
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem(STORAGE_KEY_PREFIX + 'currentUser');
-  };
-
-  const addUser = (userData: Omit<User, 'id' | 'created_at'>) => {
-    const newUser: User = {
-      ...userData,
-      id: Date.now().toString(),
-      created_at: new Date().toISOString()
-    };
-    setUsers(prev => [...prev, newUser]);
-    return newUser;
-  };
-
-  const updateUser = (id: string, updates: Partial<User>) => {
-    setUsers(prev => 
-      prev.map(user => 
-        user.id === id ? { ...user, ...updates } : user
-      )
-    );
-    
-    // Update current user session if it's the same user
-    if (user && user.id === id) {
-      const updatedUser = { ...user, ...updates };
-      setUser(updatedUser);
-      saveStoredData('currentUser', updatedUser);
-    }
-  };
-
-  const deleteUser = (id: string) => {
-    const userToDelete = users.find(u => u.id === id);
-    setUsers(prev => prev.filter(user => user.id !== id));
-    
-    // Remove password for deleted user
-    if (userToDelete) {
-      const newPasswords = { ...userPasswords };
-      delete newPasswords[userToDelete.email];
-      setUserPasswords(newPasswords);
+      await loadUsers(); // Refresh users list
       
       // If current user was deleted, log them out
+      if (user && user.id === id) {
+        logout();
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      
+      // Fallback to localStorage
+      const updatedUsers = users.filter(u => u.id !== id);
+      setUsers(updatedUsers);
+      localStorage.setItem('amc_booking_system_v1.0_users', JSON.stringify(updatedUsers));
+      
       if (user && user.id === id) {
         logout();
       }
@@ -210,12 +283,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const getAllUsers = () => users;
 
-  const setUserPassword = (email: string, password: string) => {
-    setUserPasswords(prev => ({ ...prev, [email]: password }));
+  const setUserPassword = async (email: string, password: string) => {
+    try {
+      const targetUser = users.find(u => u.email === email);
+      if (targetUser) {
+        const { error } = await supabase.auth.admin.updateUserById(targetUser.id, {
+          password: password
+        });
+        
+        if (error) throw error;
+      }
+    } catch (error) {
+      console.error('Error setting password:', error);
+      
+      // Fallback to localStorage
+      const storedPasswords = localStorage.getItem('amc_booking_system_v1.0_userPasswords');
+      const passwords = storedPasswords ? JSON.parse(storedPasswords) : {};
+      passwords[email] = password;
+      localStorage.setItem('amc_booking_system_v1.0_userPasswords', JSON.stringify(passwords));
+    }
   };
 
   const getUserById = (id: string) => {
     return users.find(user => user.id === id);
+  };
+
+  const syncData = () => {
+    loadUsers();
   };
 
   return (
