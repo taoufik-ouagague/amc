@@ -1,49 +1,25 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { BookingProvider } from './contexts/BookingContext';
-import { MachineProvider } from './contexts/MachineContext';
-import { TokenProvider } from './contexts/TokenContext';
-import LoginForm from './components/auth/LoginForm';
-import Dashboard from './components/Dashboard';
-import LoadingSpinner from './components/common/LoadingSpinner';
-
-const AppContent: React.FC = () => {
-  const { user, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
-
-  return (
-    <Router>
-      <Routes>
-        <Route 
-          path="/login" 
-          element={user ? <Navigate to="/dashboard" replace /> : <LoginForm />} 
-        />
-        <Route 
-          path="/dashboard" 
-          element={user ? <Dashboard /> : <Navigate to="/login" replace />} 
-        />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </Router>
-  );
-};
+import React from 'react'
+import { useAuth } from './hooks/useAuth'
+import Auth from './components/Auth'
+import AdminDashboard from './components/AdminDashboard'
+import UserDashboard from './components/UserDashboard'
 
 function App() {
-  return (
-    <AuthProvider>
-      <TokenProvider>
-        <MachineProvider>
-          <BookingProvider>
-            <AppContent />
-          </BookingProvider>
-        </MachineProvider>
-      </TokenProvider>
-    </AuthProvider>
-  );
+  const { user, loading, isAdmin } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-xl">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Auth />
+  }
+
+  return isAdmin() ? <AdminDashboard /> : <UserDashboard />
 }
 
-export default App;
+export default App
